@@ -8,3 +8,15 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data + artifacts (large / regenerable)
+data/*.jsonl
+artifacts/
+experiments/baselines/*.jsonl
+!experiments/baselines/.gitkeep
+
+# HF / torch caches in repo
+*.pt
+*.bin
+*.safetensors
+.cache/

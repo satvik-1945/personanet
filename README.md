@@ -188,16 +188,32 @@ If PersonaNet works for coarse traits, the same machinery can store a **guest pe
 
 ---
 
-## Repo status
+## Repo status (v0 implemented)
 
-Early scaffold:
+Soft-prompt PersonaNet head on frozen `DeepSeek-R1-Distill-Qwen-1.5B`, trained from Qwen2.5:7b stud/polite labels.
 
-- `parent_paper.pdf` — PsychAdapter paper
-- `docs/PAPER_SUMMARY.md` — distilled paper notes
-- `main.py` — placeholder
-- Local env via `uv` / Python 3.12
+```bash
+uv sync
+uv run python scripts/01_generate_questions.py
+uv run python scripts/02_teacher_label.py          # needs Ollama + qwen2.5:7b
+uv run python scripts/03_split_dataset.py
+uv run python scripts/04_train_head.py
+uv run python scripts/05_eval_generate.py
+```
 
-Next concrete coding step (when we continue): Ollama baseline scripts + trait rubric + tiny data format.
+- Code: `src/personanet/` (traits, head, frozen-LLM wrapper, dataset)
+- Data: `data/*.jsonl` (gitignored; regenerate locally)
+- Checkpoint: `artifacts/personanet_stud_polite.pt`
+- Results: [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)
+- **Inference / testing:** [`docs/INFERENCE.md`](docs/INFERENCE.md)
+
+```bash
+# compare stud vs polite vs bare on one question
+uv run python scripts/06_infer.py --compare -q "What is the capital of India?"
+
+# interactive
+uv run python scripts/06_infer.py
+```
 
 ---
 
@@ -208,13 +224,3 @@ Next concrete coding step (when we continue): Ollama baseline scripts + trait ru
 3. Start **small model, small trait set, small data**, then scale.
 4. Prefer experiments that can fail clearly (measurable trait recovery).
 5. Stay honest about ethics: trait / person mimicry can be misused; keep this research-scoped and labeled.
-
----
-
-## Open decisions (parked)
-
-- Exact injection method: PsychAdapter-style per-layer K/V vs soft prompt vs side network fused at logits
-- Discrete traits first vs continuous vectors from day one
-- Train via Hugging Face transformers (likely) vs staying inside Ollama-only (Ollama is great for baselines; training probably needs HF/PyTorch)
-
-These get decided after Phase 0 baselines.
