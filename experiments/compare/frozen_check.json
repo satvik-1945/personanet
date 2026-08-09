@@ -1,0 +1,28 @@
+{
+  "head_checkpoint": {
+    "path": "/Users/satviktejas/f/personanet/artifacts/head_deep.pt",
+    "tensors": [
+      "net.0.weight",
+      "net.0.bias",
+      "net.1.weight",
+      "net.1.bias",
+      "net.4.weight",
+      "net.4.bias",
+      "net.6.weight",
+      "net.6.bias"
+    ],
+    "params": 19568640,
+    "base_weight_tensors_found": [],
+    "contains_base_weights": false
+  },
+  "personanet": {
+    "base_sha256_vanilla": "5d2819afe508d6e7c6e812d43414e047b4d8ce72110f657ccf71a64f9cc6a693",
+    "base_sha256_with_head": "5d2819afe508d6e7c6e812d43414e047b4d8ce72110f657ccf71a64f9cc6a693",
+    "base_params": 1777088000,
+    "identical": true
+  },
+  "lora": {
+    "base_sha256_merged": "805a01a963490909b08648e7d1168604a26844eac1ff904c1a4abc6017588959",
+    "identical_to_vanilla": false
+  }
+}

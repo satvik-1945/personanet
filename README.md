@@ -188,23 +188,28 @@ If PersonaNet works for coarse traits, the same machinery can store a **guest pe
 
 ---
 
-## Repo status (v0 implemented)
+## Repo status (v1: measured)
 
-Soft-prompt PersonaNet head on frozen `DeepSeek-R1-Distill-Qwen-1.5B`, trained from Qwen2.5:7b stud/polite labels.
+Soft-prompt PersonaNet head on frozen `DeepSeek-R1-Distill-Qwen-1.5B`, trained from Qwen2.5:7b stud/polite labels, compared against prompt-only and LoRA baselines.
+
+**Result:** prompt-only trait control on this model is near chance (5–20% separation across three prompt formats). A 3.2M-parameter head reaches 100% blind trait recovery while the base weights stay bit-identical (SHA256 verified). Full numbers: [`docs/REPORT.md`](docs/REPORT.md)
 
 ```bash
 uv sync
 uv run python scripts/01_generate_questions.py
 uv run python scripts/02_teacher_label.py          # needs Ollama + qwen2.5:7b
 uv run python scripts/03_split_dataset.py
-uv run python scripts/04_train_head.py
-uv run python scripts/05_eval_generate.py
+uv run python scripts/04_train_head.py --head-arch deep
+uv run python scripts/07_lora_finetune.py          # comparison baseline
+uv run python scripts/08_generate_arms.py --limit 20
+uv run python scripts/09_judge_report.py --rubric binary
+uv run python scripts/10_verify_frozen.py          # proves base is untouched
 ```
 
-- Code: `src/personanet/` (traits, head, frozen-LLM wrapper, dataset)
+- Code: `src/personanet/` (traits, heads, frozen-LLM wrapper, dataset, prompts)
 - Data: `data/*.jsonl` (gitignored; regenerate locally)
-- Checkpoint: `artifacts/personanet_stud_polite.pt`
-- Results: [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)
+- Checkpoints: `artifacts/head_shallow.pt` (12 MB), `artifacts/head_deep.pt` (75 MB)
+- Report: [`docs/REPORT.md`](docs/REPORT.md) · log: [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)
 - **Inference / testing:** [`docs/INFERENCE.md`](docs/INFERENCE.md)
 
 ```bash

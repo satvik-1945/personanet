@@ -7,7 +7,7 @@ No style system prompt is needed: the **trait comes from the head** (`stud` / `p
 
 | Piece | Path / name |
 |-------|-------------|
-| Checkpoint | `artifacts/personanet_stud_polite.pt` |
+| Checkpoint | `artifacts/head_deep.pt` (default) or `artifacts/head_shallow.pt` |
 | Student LLM | Hugging Face `deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B` (cached after first load) |
 | Env | `uv sync` already done in this repo |
 
@@ -102,7 +102,7 @@ Log notes in [`EXPERIMENT_LOG.md`](./EXPERIMENT_LOG.md).
 
 ```bash
 uv run python scripts/06_infer.py \
-  --ckpt artifacts/personanet_stud_polite.pt \
+  --ckpt artifacts/head_deep.pt \
   --max-new-tokens 80 \
   --compare \
   -q "Why is the sky blue?"
@@ -110,7 +110,7 @@ uv run python scripts/06_infer.py \
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--ckpt` | `artifacts/personanet_stud_polite.pt` | trained head weights |
+| `--ckpt` | `artifacts/head_deep.pt` | trained head weights |
 | `--mode` | `stud` | default trait |
 | `--max-new-tokens` | `80` | cap answer length |
 | `--compare` | off | with `-q`, print all modes |

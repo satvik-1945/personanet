@@ -1,5 +1,7 @@
 # PersonaNet Experiment Log
 
+Full v1 write-up with all numbers: [`REPORT.md`](./REPORT.md)
+
 ## Baseline: prompt-only (manual Ollama)
 
 | Model | Setup | Character hold | Mock | Notes |
@@ -7,42 +9,57 @@
 | `deepseek-r1:1.5b` | Stud system + few-shot | Fail | Fail | Overthinks into polite; weak/wrong facts |
 | `qwen2.5:7b` | Stud system + few-shot | Strong | Strong | Short rude answers; usable teacher |
 
-## v0 pipeline
+## v0 pipeline (first pass)
 
 | Step | Status | Command |
 |------|--------|---------|
-| Generate 1000 questions | Done (1000) | `uv run python scripts/01_generate_questions.py` |
-| Teacher label stud+polite | Done (1000×2) | `uv run python scripts/02_teacher_label.py` |
-| Split train/val/test | Done (800/100/100 ids) | `uv run python scripts/03_split_dataset.py` |
-| Train head (frozen 1.5B) | Done (3 epochs) | `uv run python scripts/04_train_head.py` |
-| Eval generations | Done (15 qs × 3 modes) | `uv run python scripts/05_eval_generate.py` |
+| Generate 1000 questions | Done | `scripts/01_generate_questions.py` |
+| Teacher label stud+polite | Done (1000x2) | `scripts/02_teacher_label.py` |
+| Split train/val/test | Done (800/100/100 ids) | `scripts/03_split_dataset.py` |
+| Train head | Done | `scripts/04_train_head.py` |
+| Eval generations | Done | `scripts/05_eval_generate.py` |
 
-Teacher: Ollama `qwen2.5:7b`. Student: `deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B` (frozen). Trainable: PersonaNet head only (~3.2M params, `n_soft=8`).
+v0 result: polite reliable, stud unstable and looping. Root cause found later —
+EOS was never supervised, so the model was never taught to stop.
 
-### Train losses
+Legacy v0 checkpoint: `artifacts/personanet_stud_polite.pt` (val loss 1.955).
 
-| Epoch | train_loss | val_loss |
-|-------|------------|----------|
-| 1 | 2.108 | 1.955 |
-| 2 | 1.974 | 1.871 |
-| 3 | 1.924 | 1.839 |
+## v1: three-way comparison
 
-Checkpoint: `artifacts/personanet_stud_polite.pt`
+Pipeline fix (EOS supervised, explicit right padding, shared repetition penalty)
+plus two new arms: a 6.15x deeper head and a LoRA finetune baseline.
 
-## Head eval (sample from `experiments/baselines/head_eval.jsonl`)
+| arm | trainable | base weights | best val | wall clock |
+|---|---|---|---|---|
+| `head_shallow` | 3,183,872 | bit-identical | 1.796 | 33.2 min |
+| `head_deep` | 19,568,640 | bit-identical | 1.627 | 33.4 min |
+| `lora` | 9,232,384 | modified | 1.494 (ep2) | 25.5 min |
 
-| question | mode | character hold | mock | correct-enough | short | notes |
-|----------|------|----------------|------|----------------|-------|-------|
-| two plus two | stud | Partial | Yes | Yes | No (rambling) | "Dude, seriously? 2+2=4..." |
-| two plus two | polite | Yes | No | Yes | Yes | Clean factual |
-| two plus two | bare | Mild stud-ish | Mild | Yes | Medium | Between styles |
-| What language is spoken in Brazil? | stud | Weak | No | No | — | Hallucinated "100 degrees Celsius" |
-| What language is spoken in Brazil? | polite | Yes | No | Yes | Yes | "Portuguese" |
-| How do I tie a tie? | stud | Fail | No | No | — | Degenerate "8. Next question." |
-| How do I tie a tie? | polite | Yes | No | Partial | No | Long helpful steps |
+Blind binary judgement on 20 held-out questions (chance 50%):
+
+| arm | trait accuracy | separation |
+|---|---|---|
+| `vanilla_prompt` | 52% | 5% |
+| `vanilla_prompt_long` | 52% | 5% |
+| `vanilla_prompt_plain` | 60% | 20% |
+| `head_shallow` | 100% | 100% |
+| `head_deep` | 100% | 100% |
+| `lora` | 98% | 95% |
+
+Frozen-weight proof: base SHA256 identical with the head attached, different once
+LoRA is merged. See `experiments/compare/frozen_check.json`.
 
 ### Verdict
 
-- Head steers stud vs polite without a style system prompt? **Partially** — polite is reliable; stud sometimes appears (slang/mock) but is unstable and can hallucinate.
-- Better than prompt-only DeepSeek 1.5B? **Promising for polite contrast**; stud still needs stronger head / more data quality / maybe LoRA next.
-- Note: question set includes many padded "two plus two" items (generator fallback); regenerate denser unique questions in a follow-up.
+- Prompt-only trait control on this 1.5B model is near chance, in three formats.
+- Both heads recover the requested trait perfectly with the base untouched.
+- The deeper head improves loss but binary trait recovery is saturated, so it
+  cannot be separated from the shallow head on this metric.
+
+## Next candidates
+
+- Larger eval set (100 test ids are available; only 20 used)
+- Regenerate questions without the padded duplicates, then re-label
+- Harder metric: fine-grained intensity levels instead of two traits
+- Third trait to test whether one head scales past a binary dial
+- Calibrate the zero trait vector, which currently reads as stud

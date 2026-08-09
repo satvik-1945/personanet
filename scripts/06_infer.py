@@ -4,67 +4,39 @@
 from __future__ import annotations
 
 import argparse
-import re
 from pathlib import Path
 
 import torch
 
-from personanet.model import DEFAULT_STUDENT, load_bundle
+from personanet.data import build_prompt
+from personanet.generate import GEN_DEFAULTS, clean_answer
+from personanet.model import load_bundle_from_ckpt
 from personanet.traits import one_hot, zero_trait
 
 ROOT = Path(__file__).resolve().parents[1]
-THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-
-
-def strip_think(text: str) -> str:
-    text = THINK_RE.sub("", text).strip()
-    if "\n</think>" in text:
-        text = text.split("\n</think>")[-1].strip()
-    return text
-
-
-def load_head(bundle, ckpt_path: Path) -> None:
-    ckpt = torch.load(ckpt_path, map_location=bundle.device, weights_only=False)
-    bundle.model.head.load_state_dict(ckpt["head_state_dict"])
-    bundle.model.head.to(device=bundle.device, dtype=torch.float32)
-
-
-def generate_one(
-    bundle,
-    question: str,
-    trait_vec: list[float],
-    max_new_tokens: int,
-) -> str:
-    model = bundle.model
-    tokenizer = bundle.tokenizer
-    device = bundle.device
-    prompt = f"Question: {question}\nAnswer:"
-    tok = tokenizer(prompt, return_tensors="pt")
-    input_ids = tok["input_ids"].to(device)
-    attention_mask = tok["attention_mask"].to(device)
-    trait = torch.tensor([trait_vec], dtype=torch.float32, device=device)
-
-    out_ids = model.generate(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        trait_vec=trait,
-        max_new_tokens=max_new_tokens,
-        do_sample=False,
-        pad_token_id=tokenizer.pad_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-    )
-    text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-    text = strip_think(text)
-    if "Answer:" in text:
-        text = text.split("Answer:")[-1].strip()
-    return text.strip()
+MODES = ("stud", "polite", "bare")
 
 
 def trait_vector(mode: str) -> list[float]:
     mode = mode.strip().lower()
-    if mode == "bare":
-        return zero_trait()
-    return one_hot(mode)
+    return zero_trait() if mode == "bare" else one_hot(mode)
+
+
+def generate_one(bundle, question: str, mode: str, max_new_tokens: int) -> str:
+    tokenizer = bundle.tokenizer
+    device = bundle.device
+    tok = tokenizer(build_prompt(question), return_tensors="pt")
+    trait = torch.tensor([trait_vector(mode)], dtype=torch.float32, device=device)
+    out = bundle.model.generate(
+        input_ids=tok["input_ids"].to(device),
+        attention_mask=tok["attention_mask"].to(device),
+        trait_vec=trait,
+        max_new_tokens=max_new_tokens,
+        pad_token_id=tokenizer.pad_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        **GEN_DEFAULTS,
+    )
+    return clean_answer(tokenizer.decode(out[0], skip_special_tokens=True))
 
 
 def main() -> None:
@@ -72,17 +44,10 @@ def main() -> None:
     parser.add_argument(
         "--ckpt",
         type=Path,
-        default=ROOT / "artifacts" / "personanet_stud_polite.pt",
+        default=ROOT / "artifacts" / "head_deep.pt",
     )
-    parser.add_argument("--model-name", default=DEFAULT_STUDENT)
-    parser.add_argument("--n-soft", type=int, default=8)
-    parser.add_argument("--mid-dim", type=int, default=256)
     parser.add_argument("--max-new-tokens", type=int, default=80)
-    parser.add_argument(
-        "--mode",
-        default="stud",
-        choices=["stud", "polite", "bare"],
-    )
+    parser.add_argument("--mode", default="stud", choices=MODES)
     parser.add_argument("-q", "--question", default="")
     parser.add_argument(
         "--compare",
@@ -94,29 +59,20 @@ def main() -> None:
     if not args.ckpt.exists():
         raise SystemExit(
             f"Missing checkpoint {args.ckpt}\n"
-            "Train first: uv run python scripts/04_train_head.py"
+            "Train first: uv run python scripts/04_train_head.py --head-arch deep"
         )
 
     print(f"Loading student + head… (ckpt={args.ckpt})")
-    bundle = load_bundle(
-        model_name=args.model_name,
-        n_soft=args.n_soft,
-        mid_dim=args.mid_dim,
+    bundle, meta = load_bundle_from_ckpt(args.ckpt)
+    print(
+        f"Ready on {bundle.device} | head={meta.get('head_arch', 'shallow')} "
+        f"n_soft={meta.get('n_soft')} | modes: {' | '.join(MODES)}"
     )
-    load_head(bundle, args.ckpt)
-    bundle.model.eval()
-    print(f"Ready on {bundle.device}. Modes: stud | polite | bare")
 
     if args.question:
-        modes = ["stud", "polite", "bare"] if args.compare else [args.mode]
+        modes = MODES if args.compare else (args.mode,)
         for mode in modes:
-            ans = generate_one(
-                bundle,
-                args.question,
-                trait_vector(mode),
-                max_new_tokens=args.max_new_tokens,
-            )
-            print(f"\n[{mode}]\n{ans}")
+            print(f"\n[{mode}]\n{generate_one(bundle, args.question, mode, args.max_new_tokens)}")
         return
 
     mode = args.mode
@@ -137,7 +93,7 @@ def main() -> None:
             continue
         if line in {"/quit", "/exit", ":q"}:
             break
-        if line in {"/stud", "/polite", "/bare"}:
+        if line[1:] in MODES and line.startswith("/"):
             mode = line[1:]
             print(f"mode -> {mode}")
             continue
@@ -146,15 +102,12 @@ def main() -> None:
             if not q:
                 print("usage: /compare What is the capital of India?")
                 continue
-            for m in ("stud", "polite", "bare"):
-                ans = generate_one(
-                    bundle, q, trait_vector(m), args.max_new_tokens
-                )
-                print(f"\n[{m}]\n{ans}")
+            for m in MODES:
+                print(f"\n[{m}]\n{generate_one(bundle, q, m, args.max_new_tokens)}")
             print()
             continue
 
-        print(generate_one(bundle, line, trait_vector(mode), args.max_new_tokens))
+        print(generate_one(bundle, line, mode, args.max_new_tokens))
         print()
 
 

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import torch
 import torch.nn as nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from personanet.head import PersonaNetHead
+from personanet.head import build_head
 from personanet.traits import TRAIT_DIM
 
 
@@ -33,7 +34,7 @@ class PersonaNetModel(nn.Module):
     def __init__(
         self,
         base: AutoModelForCausalLM,
-        head: PersonaNetHead,
+        head: nn.Module,
     ) -> None:
         super().__init__()
         self.base = base
@@ -56,13 +57,12 @@ class PersonaNetModel(nn.Module):
     def _embed(self, input_ids: torch.Tensor) -> torch.Tensor:
         return self.base.get_input_embeddings()(input_ids)
 
-    def forward(
+    def _prefixed(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         trait_vec: torch.Tensor,
-        labels: torch.Tensor | None = None,
-    ) -> Any:
+    ) -> tuple[torch.Tensor, torch.Tensor, int]:
         soft = self.head(trait_vec.to(dtype=torch.float32))  # [B, n_soft, H]
         tok_embeds = self._embed(input_ids)  # [B, T, H]
         soft = soft.to(dtype=tok_embeds.dtype)
@@ -73,11 +73,23 @@ class PersonaNetModel(nn.Module):
             batch, n_soft, device=attention_mask.device, dtype=attention_mask.dtype
         )
         full_mask = torch.cat([soft_mask, attention_mask], dim=1)
+        return inputs_embeds, full_mask, n_soft
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        trait_vec: torch.Tensor,
+        labels: torch.Tensor | None = None,
+    ) -> Any:
+        inputs_embeds, full_mask, n_soft = self._prefixed(
+            input_ids, attention_mask, trait_vec
+        )
 
         full_labels = None
         if labels is not None:
             ignore = torch.full(
-                (batch, n_soft),
+                (labels.shape[0], n_soft),
                 -100,
                 device=labels.device,
                 dtype=labels.dtype,
@@ -98,15 +110,9 @@ class PersonaNetModel(nn.Module):
         trait_vec: torch.Tensor,
         **gen_kwargs: Any,
     ) -> torch.Tensor:
-        soft = self.head(trait_vec.to(dtype=torch.float32))
-        tok_embeds = self._embed(input_ids)
-        soft = soft.to(dtype=tok_embeds.dtype)
-        inputs_embeds = torch.cat([soft, tok_embeds], dim=1)
-        batch, n_soft, _ = soft.shape
-        soft_mask = torch.ones(
-            batch, n_soft, device=attention_mask.device, dtype=attention_mask.dtype
+        inputs_embeds, full_mask, _ = self._prefixed(
+            input_ids, attention_mask, trait_vec
         )
-        full_mask = torch.cat([soft_mask, attention_mask], dim=1)
         return self.base.generate(
             inputs_embeds=inputs_embeds,
             attention_mask=full_mask,
@@ -122,17 +128,18 @@ def pick_device() -> torch.device:
     return torch.device("cpu")
 
 
-def load_bundle(
+def default_dtype(device: torch.device) -> torch.dtype:
+    return torch.float16 if device.type in {"cuda", "mps"} else torch.float32
+
+
+def load_base(
     model_name: str = DEFAULT_STUDENT,
-    n_soft: int = 8,
-    mid_dim: int = 256,
-    trait_dim: int = TRAIT_DIM,
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
-) -> PersonaNetBundle:
+) -> tuple[AutoModelForCausalLM, Any, torch.device]:
+    """Load the plain (vanilla) student model and tokenizer."""
     device = device or pick_device()
-    if dtype is None:
-        dtype = torch.float16 if device.type in {"cuda", "mps"} else torch.float32
+    dtype = dtype or default_dtype(device)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     if tokenizer.pad_token is None:
@@ -143,15 +150,56 @@ def load_bundle(
         dtype=dtype,
         trust_remote_code=True,
     )
-    hidden = base.config.hidden_size
-    head = PersonaNetHead(
-        hidden_size=hidden,
+    base.to(device)
+    base.eval()
+    return base, tokenizer, device
+
+
+def load_bundle(
+    model_name: str = DEFAULT_STUDENT,
+    head_arch: str = "shallow",
+    n_soft: int | None = None,
+    mid_dim: int | None = None,
+    trait_dim: int = TRAIT_DIM,
+    device: torch.device | None = None,
+    dtype: torch.dtype | None = None,
+) -> PersonaNetBundle:
+    base, tokenizer, device = load_base(model_name, device=device, dtype=dtype)
+    head = build_head(
+        arch=head_arch,
+        hidden_size=base.config.hidden_size,
         trait_dim=trait_dim,
         n_soft=n_soft,
         mid_dim=mid_dim,
     )
     model = PersonaNetModel(base=base, head=head)
     model.to(device)
-    # head should be float32 for stable training even if base is fp16
+    # head stays float32 for stable training even if base is fp16
     model.head.to(device=device, dtype=torch.float32)
     return PersonaNetBundle(model=model, tokenizer=tokenizer, device=device)
+
+
+def load_bundle_from_ckpt(
+    ckpt_path: str | Path,
+    model_name: str | None = None,
+    device: torch.device | None = None,
+) -> tuple[PersonaNetBundle, dict[str, Any]]:
+    """
+    Build a bundle whose head matches a saved checkpoint, then load its weights.
+
+    Checkpoints written before the deep head existed have no `head_arch` key and
+    are treated as `shallow`.
+    """
+    ckpt_path = Path(ckpt_path)
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    bundle = load_bundle(
+        model_name=model_name or ckpt.get("model_name", DEFAULT_STUDENT),
+        head_arch=ckpt.get("head_arch", "shallow"),
+        n_soft=ckpt.get("n_soft"),
+        mid_dim=ckpt.get("mid_dim"),
+        device=device,
+    )
+    bundle.model.head.load_state_dict(ckpt["head_state_dict"])
+    bundle.model.head.to(device=bundle.device, dtype=torch.float32)
+    bundle.model.eval()
+    return bundle, ckpt
