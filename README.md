@@ -213,6 +213,10 @@ uv run python scripts/10_verify_frozen.py          # proves base is untouched
 - **Inference / testing:** [`docs/INFERENCE.md`](docs/INFERENCE.md)
 
 ```bash
+# cinematic terminal demo (screen-record friendly)
+uv run python scripts/11_demo.py
+uv run python scripts/11_demo.py --auto --question "What is two plus two?"
+
 # compare stud vs polite vs bare on one question
 uv run python scripts/06_infer.py --compare -q "What is the capital of India?"
 

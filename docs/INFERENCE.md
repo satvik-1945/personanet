@@ -13,6 +13,21 @@ No style system prompt is needed: the **trait comes from the head** (`stud` / `p
 
 Ollama is **not** used for this inference path (training/inference of the head is PyTorch).
 
+## Live demo (screen recording)
+
+Cinematic walkthrough: boot timeline, frozen-weight proof, scoreboard, live trait switching.
+
+```bash
+# interactive — press Enter between beats, then chat
+uv run python scripts/11_demo.py
+
+# fully automatic (good for a clean screen recording)
+uv run python scripts/11_demo.py --auto --question "What is two plus two?"
+
+# UI rehearsal without loading the 1.5B model
+uv run python scripts/11_demo.py --skip-load --auto
+```
+
 ## Quick test (one question, all three modes)
 
 From the repo root:
