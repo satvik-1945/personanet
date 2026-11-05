@@ -211,13 +211,18 @@ uv run python scripts/10_verify_frozen.py          # proves base is untouched
 - Checkpoints: `artifacts/head_shallow.pt` (12 MB), `artifacts/head_deep.pt` (75 MB)
 - Report: [`docs/REPORT.md`](docs/REPORT.md) · log: [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md)
 - **Inference / testing:** [`docs/INFERENCE.md`](docs/INFERENCE.md)
+- **Demo commands / recording guide:** [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md)
+- **Local project/session notes:** [`docs/SESSION_LOG.md`](docs/SESSION_LOG.md)
+
+The demo calls the original `stud` trait **Bold**; trained indices and historical
+results retain their original labels.
 
 ```bash
 # cinematic terminal demo (screen-record friendly)
 uv run python scripts/11_demo.py
 uv run python scripts/11_demo.py --auto --question "What is two plus two?"
 
-# compare stud vs polite vs bare on one question
+# compare Bold vs Polite vs zero-vector head control on one question
 uv run python scripts/06_infer.py --compare -q "What is the capital of India?"
 
 # interactive

@@ -14,16 +14,21 @@ GEN_DEFAULTS: dict[str, object] = {
 }
 
 
-def strip_think(text: str) -> str:
+def strip_think(text: str, *, starts_in_think: bool = False) -> str:
+    # R1 chat templates can supply the opening tag in the input, outside the
+    # generated continuation. Carry that state so a capped trace stays hidden.
+    if starts_in_think:
+        text = "<think>" + text
     text = THINK_RE.sub("", text).strip()
-    if "</think>" in text:
-        text = text.split("</think>")[-1].strip()
+    text = re.split(r"</think>", text, flags=re.IGNORECASE)[-1]
+    # A generation limit may leave an unclosed reasoning block.
+    text = re.split(r"<think>", text, maxsplit=1, flags=re.IGNORECASE)[0]
     return text
 
 
-def clean_answer(text: str) -> str:
+def clean_answer(text: str, *, starts_in_think: bool = False) -> str:
     """Keep only the answer: drop reasoning traces and any invented next turn."""
-    text = strip_think(text)
+    text = strip_think(text, starts_in_think=starts_in_think)
     if "Answer:" in text:
         text = text.split("Answer:")[-1]
     # The base model often keeps going with a new Q/A pair of its own

@@ -15,6 +15,12 @@ artifacts/
 experiments/baselines/*.jsonl
 !experiments/baselines/.gitkeep
 
+# Local scratch: drafts, content, notes (never committed)
+.local/
+
+# Local recording script
+docs/LINKEDIN_PRESENTATION.md
+
 # HF / torch caches in repo
 *.pt
 *.bin

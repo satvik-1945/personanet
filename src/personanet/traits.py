@@ -15,6 +15,9 @@ INDEX_TO_TRAIT: dict[int, str] = {v: k for k, v in TRAIT_TO_INDEX.items()}
 
 def trait_to_index(trait: str) -> int:
     key = trait.strip().lower()
+    # Public-facing name; preserve the trained index and historical data labels.
+    if key == "bold":
+        key = "stud"
     if key not in TRAIT_TO_INDEX:
         raise KeyError(f"Unknown trait {trait!r}. Known: {sorted(TRAIT_TO_INDEX)}")
     return TRAIT_TO_INDEX[key]

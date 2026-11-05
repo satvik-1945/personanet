@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interactive / one-shot PersonaNet inference (stud | polite | bare)."""
+"""Interactive / one-shot PersonaNet inference (bold | polite | bare)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from personanet.model import load_bundle_from_ckpt
 from personanet.traits import one_hot, zero_trait
 
 ROOT = Path(__file__).resolve().parents[1]
-MODES = ("stud", "polite", "bare")
+MODES = ("bold", "polite", "bare")
 
 
 def trait_vector(mode: str) -> list[float]:
@@ -47,12 +47,12 @@ def main() -> None:
         default=ROOT / "artifacts" / "head_deep.pt",
     )
     parser.add_argument("--max-new-tokens", type=int, default=80)
-    parser.add_argument("--mode", default="stud", choices=MODES)
+    parser.add_argument("--mode", default="bold", choices=(*MODES, "stud"))
     parser.add_argument("-q", "--question", default="")
     parser.add_argument(
         "--compare",
         action="store_true",
-        help="With -q, print stud + polite + bare",
+        help="With -q, print bold + polite + bare (zero-vector head control)",
     )
     args = parser.parse_args()
 
@@ -75,11 +75,11 @@ def main() -> None:
             print(f"\n[{mode}]\n{generate_one(bundle, args.question, mode, args.max_new_tokens)}")
         return
 
-    mode = args.mode
+    mode = "bold" if args.mode == "stud" else args.mode
     print(
         "\nInteractive PersonaNet\n"
         "  type a question and press Enter\n"
-        "  /stud  /polite  /bare  — switch trait\n"
+        "  /bold  /polite  /bare  — switch trait\n"
         "  /compare <question>   — all three modes\n"
         "  /quit                 — exit\n"
     )
@@ -93,8 +93,8 @@ def main() -> None:
             continue
         if line in {"/quit", "/exit", ":q"}:
             break
-        if line[1:] in MODES and line.startswith("/"):
-            mode = line[1:]
+        if line[1:] in (*MODES, "stud") and line.startswith("/"):
+            mode = "bold" if line == "/stud" else line[1:]
             print(f"mode -> {mode}")
             continue
         if line.startswith("/compare "):
